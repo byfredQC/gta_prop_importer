@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "gta_prop_importer"
+version = "1.3.0"
+name = "GTA Prop Importer"
+tagline = "Importe un prop ou un ymap GTA V par son nom, avec textures"
+maintainer = "fredqcvv"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+platforms = ["windows-x64"]
+
+[permissions]
+files = "Lit les archives de GTA V et ecrit les modeles extraits"
