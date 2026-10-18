@@ -24,6 +24,42 @@ def prefs():
     return bpy.context.preferences.addons[__package__].preferences
 
 
+def is_en() -> bool:
+    try:
+        return prefs().language == "EN"
+    except Exception:
+        return False
+
+
+def L(fr: str, en: str) -> str:
+    """Texte dans la langue choisie (preferences de l'addon) / text in the chosen language"""
+    return en if is_en() else fr
+
+
+# Messages envoyes par PropGrabber (en francais) -> anglais
+TOOL_MSGS = (
+    ("Chargement des cles du jeu...", "Loading game keys..."),
+    ("Scan des archives RPF (1 a 2 minutes la premiere fois)...", "Scanning RPF archives (1-2 minutes the first time)..."),
+    ("Modele ", "Model "),
+    ("Prop introuvable : ", "Prop not found: "),
+    ("Ymap introuvable : ", "Ymap not found: "),
+    ("Impossible de lire ", "Cannot read "),
+    ("Dossier GTA V introuvable : ", "GTA V folder not found: "),
+    ("Commande inconnue : ", "Unknown command: "),
+    ("Nom vide", "Empty name"),
+    ("Usage : PropGrabber.exe <dossier CodeWalker> <dossier GTA V>", "Usage: PropGrabber.exe <CodeWalker folder> <GTA V folder>"),
+)
+
+
+def tool_msg(text: str) -> str:
+    if not text or not is_en():
+        return text
+    for fr, en in TOOL_MSGS:
+        if text.startswith(fr):
+            return en + text[len(fr):]
+    return text
+
+
 def user_dir() -> Path:
     try:
         d = Path(bpy.utils.extension_path_user(__package__, create=True))
@@ -133,7 +169,7 @@ def ensure_tool(cw_dir: Path) -> Path:
     """Compile PropGrabber.exe si besoin. Renvoie le chemin de l'exe ou leve RuntimeError."""
     core = cw_dir / "CodeWalker.Core.dll"
     if not core.is_file():
-        raise RuntimeError(f"CodeWalker.Core.dll introuvable dans : {cw_dir}")
+        raise RuntimeError(L(f"CodeWalker.Core.dll introuvable dans : {cw_dir}", f"CodeWalker.Core.dll not found in: {cw_dir}"))
 
     out_dir = user_dir() / "tool"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,10 +186,10 @@ def ensure_tool(cw_dir: Path) -> Path:
 
     csc = find_csc()
     if csc is None:
-        raise RuntimeError("Compilateur C# de Windows introuvable (.NET Framework 4.8 requis).")
+        raise RuntimeError(L("Compilateur C# de Windows introuvable (.NET Framework 4.8 requis).", "Windows C# compiler not found (.NET Framework 4.8 required)."))
     netstd = find_netstandard()
     if netstd is None:
-        raise RuntimeError("netstandard.dll introuvable : installe .NET Framework 4.8 (Windows Update).")
+        raise RuntimeError(L("netstandard.dll introuvable : installe .NET Framework 4.8 (Windows Update).", "netstandard.dll not found: install .NET Framework 4.8 (Windows Update)."))
 
     refs = [core, netstd] + sorted(cw_dir.glob("SharpDX*.dll"))
     cmd = [str(csc), "/nologo", "/optimize+", "/platform:x64", "/target:exe",
@@ -162,8 +198,8 @@ def ensure_tool(cw_dir: Path) -> Path:
     if res.returncode != 0 or not exe.is_file():
         log = out_dir / "build.log"
         log.write_text(res.stdout + "\n" + res.stderr, encoding="utf-8")
-        first = next((l for l in (res.stdout + res.stderr).splitlines() if "error" in l.lower()), "erreur inconnue")
-        raise RuntimeError(f"Echec de compilation : {first}  (journal : {log})")
+        first = next((l for l in (res.stdout + res.stderr).splitlines() if "error" in l.lower()), L("erreur inconnue", "unknown error"))
+        raise RuntimeError(L(f"Echec de compilation : {first}  (journal : {log})", f"Build failed: {first}  (log: {log})"))
     (out_dir / "PropGrabber.exe.config").write_text(EXE_CONFIG, encoding="utf-8")
     stamp_file.write_text(stamp)
     return exe
@@ -195,10 +231,10 @@ class Grabber:
         cw = Path(bpy.path.abspath(p.codewalker_dir.strip()))
         gta = Path(bpy.path.abspath(p.gta_dir.strip()))
         if not p.codewalker_dir.strip():
-            raise RuntimeError("Indique le dossier de CodeWalker dans les preferences de l'addon.")
+            raise RuntimeError(L("Indique le dossier de CodeWalker dans les preferences de l'addon.", "Set the CodeWalker folder in the add-on preferences."))
         if not ((gta / "GTA5.exe").is_file() or (gta / "GTA5_Enhanced.exe").is_file()):
-            raise RuntimeError(f"GTA5.exe introuvable dans : {gta}")
-        cls.status = "Compilation de l'outil..."
+            raise RuntimeError(L(f"GTA5.exe introuvable dans : {gta}", f"GTA5.exe not found in: {gta}"))
+        cls.status = L("Compilation de l'outil...", "Building the tool...")
         exe = ensure_tool(cw)
 
         cls.ready = False
@@ -210,7 +246,7 @@ class Grabber:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         threading.Thread(target=cls._reader, args=(cls.proc,), daemon=True).start()
-        cls.status = "Demarrage..."
+        cls.status = L("Demarrage...", "Starting...")
 
     @classmethod
     def _reader(cls, proc):
@@ -248,31 +284,41 @@ class Grabber:
 class GTAPI_Prefs(AddonPreferences):
     bl_idname = __package__
 
+    language: bpy.props.EnumProperty(
+        name="Langue / Language",
+        items=(
+            ("FR", "Français", "Interface en français"),
+            ("EN", "English", "English interface"),
+        ),
+        default="FR",
+    )
     codewalker_dir: StringProperty(
         name="Dossier CodeWalker",
-        description="Dossier qui contient CodeWalker.Core.dll",
+        description="Dossier qui contient CodeWalker.Core.dll\nFolder that contains CodeWalker.Core.dll",
         subtype="DIR_PATH",
     )
     gta_dir: StringProperty(
         name="Dossier GTA V",
-        description="Dossier qui contient GTA5.exe (ou GTA5_Enhanced.exe)",
+        description="Dossier qui contient GTA5.exe (ou GTA5_Enhanced.exe)\nFolder that contains GTA5.exe (or GTA5_Enhanced.exe)",
         subtype="DIR_PATH",
     )
     output_dir: StringProperty(
         name="Dossier d'extraction",
-        description="Ou ranger les modeles et textures extraits (vide = dossier de l'addon)",
+        description="Ou ranger les modeles et textures extraits (vide = dossier de l'addon)\nWhere to put the extracted models and textures (empty = add-on folder)",
         subtype="DIR_PATH",
     )
 
     def draw(self, context):
         col = self.layout.column()
-        col.prop(self, "codewalker_dir")
+        col.row().prop(self, "language", expand=True)
+        col.prop(self, "codewalker_dir", text=L("Dossier CodeWalker", "CodeWalker folder"))
         row = col.row(align=True)
-        row.prop(self, "gta_dir")
+        row.prop(self, "gta_dir", text=L("Dossier GTA V", "GTA V folder"))
         row.operator("gtapi.detect_gta", text="", icon="VIEWZOOM")
-        col.prop(self, "output_dir")
+        col.prop(self, "output_dir", text=L("Dossier d'extraction", "Extraction folder"))
         if not sollumz_available():
-            col.label(text="Sollumz n'est pas active : il est requis pour l'import.", icon="ERROR")
+            col.label(text=L("Sollumz n'est pas active : il est requis pour l'import.",
+                             "Sollumz is not enabled: it is required for importing."), icon="ERROR")
 
 
 # ---------------------------------------------------------------- proprietes de scene
@@ -359,48 +405,48 @@ class GTAPI_YmapModel(PropertyGroup):
     name: StringProperty()
     count: IntProperty()
     visible: BoolProperty(name="Visible", default=True, update=_on_model_toggle,
-                          description="Afficher ou masquer toutes les copies de ce prop")
+                          description="Afficher ou masquer toutes les copies de ce prop\nShow or hide every copy of this prop")
 
 
 class GTAPI_Props(PropertyGroup):
     mode: bpy.props.EnumProperty(
         name="Mode",
         items=(
-            ("PROP", "Prop", "Importer un seul prop", "MESH_CUBE", 0),
-            ("YMAP", "YMAP", "Importer un ymap complet : tous ses props, places a leur position dans le monde", "WORLD", 1),
+            ("PROP", "Prop", "Importer un seul prop\nImport a single prop", "MESH_CUBE", 0),
+            ("YMAP", "YMAP", "Importer un ymap complet : tous ses props, places a leur position dans le monde\nImport a whole ymap: all its props, placed at their world position", "WORLD", 1),
         ),
         default="PROP",
     )
-    prop_name: StringProperty(name="Prop", description="Nom du prop, ex. prop_bench_01a")
-    ymap_name: StringProperty(name="YMAP", description="Nom du ymap, ex. dt1_02_strm_0")
+    prop_name: StringProperty(name="Prop", description="Nom du prop, ex. prop_bench_01a\nProp name, e.g. prop_bench_01a")
+    ymap_name: StringProperty(name="YMAP", description="Nom du ymap, ex. dt1_02_strm_0\nYmap name, e.g. dt1_02_strm_0")
     ymap_hd_only: BoolProperty(
         name="Modeles HD seulement",
-        description="Ignore les modeles LOD/SLOD (versions basse qualite vues de loin). Beaucoup plus rapide",
+        description="Ignore les modeles LOD/SLOD (versions basse qualite vues de loin). Beaucoup plus rapide\nSkip LOD/SLOD models (low quality versions seen from far away). Much faster",
         default=True,
     )
     ymap_skip_props: BoolProperty(
         name="Desactiver les props",
-        description="Ne pas importer les modeles dont le nom correspond au filtre (les entites restent dans le ymap, sans modele)",
+        description="Ne pas importer les modeles dont le nom correspond au filtre (les entites restent dans le ymap, sans modele)\nDo not import models whose name matches the filter (the entities stay in the ymap, without a model)",
         default=False,
     )
     ymap_exclude: StringProperty(
         name="Filtre",
-        description="Modeles a ne pas importer, separes par ; (jokers * et ?)",
+        description="Modeles a ne pas importer, separes par ; (jokers * et ?)\nModels not to import, separated by ; (wildcards * and ?)",
         default="prop_*;p_*",
     )
     ymap_models: bpy.props.CollectionProperty(type=GTAPI_YmapModel)
     ymap_models_index: IntProperty()
-    ymap_list_filter: StringProperty(name="Filtrer la liste", description="N'afficher que les modeles contenant ce texte")
+    ymap_list_filter: StringProperty(name="Filtrer la liste", description="N'afficher que les modeles contenant ce texte\nOnly show models containing this text")
     place_at_cursor: BoolProperty(name="Placer au curseur 3D", default=True)
     show_lights: BoolProperty(
         name="Lumieres",
-        description="Afficher les lumieres des props GTA (elles restent dans le modele, seulement masquees)",
+        description="Afficher les lumieres des props GTA (elles restent dans le modele, seulement masquees)\nShow the GTA prop lights (they stay in the model, only hidden)",
         default=True,
         update=_on_lights_toggle,
     )
     show_blue_lines: BoolProperty(
         name="Lignes bleues",
-        description="Afficher les lignes parent/enfant et les lignes de hierarchie LOD des ymap",
+        description="Afficher les lignes parent/enfant et les lignes de hierarchie LOD des ymap\nShow parent/child lines and the ymap LOD hierarchy lines",
         default=True,
         update=_on_lines_toggle,
     )
@@ -414,13 +460,17 @@ class GTAPI_OT_detect_gta(Operator):
     bl_label = "Detecter GTA V"
     bl_description = "Cherche le dossier d'installation de GTA V"
 
+    @classmethod
+    def description(cls, context, properties):
+        return L("Cherche le dossier d'installation de GTA V", "Find the GTA V install folder")
+
     def execute(self, context):
         g = guess_gta_dir()
         if g:
             prefs().gta_dir = g
-            self.report({"INFO"}, f"GTA V trouve : {g}")
+            self.report({"INFO"}, L(f"GTA V trouve : {g}", f"GTA V found: {g}"))
         else:
-            self.report({"WARNING"}, "GTA V introuvable automatiquement, choisis le dossier a la main.")
+            self.report({"WARNING"}, L("GTA V introuvable automatiquement, choisis le dossier a la main.", "GTA V not found automatically, pick the folder by hand."))
         return {"FINISHED"}
 
 
@@ -439,19 +489,22 @@ class GTAPI_OT_run(Operator):
     @classmethod
     def description(cls, context, properties):
         return {
-            "import": "Extraire ce prop de GTA V et l'importer avec ses textures",
-            "search": "Chercher les props dont le nom contient ce texte",
-            "ymap": "Extraire ce ymap et tous ses props, puis les placer a leur position",
-            "searchymap": "Chercher les ymap dont le nom contient ce texte",
-            "warmup": "Lancer le scan du jeu maintenant (1 a 2 minutes la premiere fois)",
+            "import": L("Extraire ce prop de GTA V et l'importer avec ses textures",
+                        "Extract this prop from GTA V and import it with its textures"),
+            "search": L("Chercher les props dont le nom contient ce texte", "Search props whose name contains this text"),
+            "ymap": L("Extraire ce ymap et tous ses props, puis les placer a leur position",
+                      "Extract this ymap and all its props, then place them at their position"),
+            "searchymap": L("Chercher les ymap dont le nom contient ce texte", "Search ymaps whose name contains this text"),
+            "warmup": L("Lancer le scan du jeu maintenant (1 a 2 minutes la premiere fois)",
+                        "Scan the game now (1-2 minutes the first time)"),
         }.get(properties.action, "")
 
     def invoke(self, context, event):
         if Grabber.busy:
-            self.report({"WARNING"}, "Une operation est deja en cours, patiente.")
+            self.report({"WARNING"}, L("Une operation est deja en cours, patiente.", "An operation is already running, please wait."))
             return {"CANCELLED"}
         if self.action in {"import", "ymap"} and not sollumz_available():
-            self.report({"ERROR"}, "Sollumz doit etre installe et active.")
+            self.report({"ERROR"}, L("Sollumz doit etre installe et active.", "Sollumz must be installed and enabled."))
             return {"CANCELLED"}
 
         props = context.scene.gtapi
@@ -459,7 +512,7 @@ class GTAPI_OT_run(Operator):
         if not self.name:
             self.name = (props.ymap_name if is_ymap else props.prop_name).strip()
         if self.action != "warmup" and not self.name:
-            self.report({"WARNING"}, "Tape un nom de ymap." if is_ymap else "Tape un nom de prop.")
+            self.report({"WARNING"}, L("Tape un nom de ymap.", "Type a ymap name.") if is_ymap else L("Tape un nom de prop.", "Type a prop name."))
             return {"CANCELLED"}
         if self.action == "import":
             props.prop_name = self.name
@@ -491,7 +544,7 @@ class GTAPI_OT_run(Operator):
         if event.type == "ESC":
             if self._sent:
                 Grabber.discard += 1  # l'outil finira quand meme : on ignorera sa reponse
-            Grabber.status = "Annule"
+            Grabber.status = L("Annule", "Cancelled")
             return self.finish(context, "CANCELLED")
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
@@ -503,21 +556,21 @@ class GTAPI_OT_run(Operator):
                 break
 
             if "status" in msg:
-                Grabber.status = msg["status"]
+                Grabber.status = tool_msg(msg["status"])
             elif "ready" in msg:
                 Grabber.ready = True
                 Grabber.count = msg.get("count", 0)
-                Grabber.status = f"Pret - {Grabber.count} modeles indexes"
+                Grabber.status = L(f"Pret - {Grabber.count} modeles indexes", f"Ready - {Grabber.count} models indexed")
             elif "exited" in msg:
                 Grabber.proc = None
                 Grabber.ready = False
-                self.report({"ERROR"}, "L'outil d'extraction s'est arrete. " + Grabber.last_message)
+                self.report({"ERROR"}, L("L'outil d'extraction s'est arrete. ", "The extraction tool stopped. ") + tool_msg(Grabber.last_message))
                 return self.finish(context, "CANCELLED")
             elif "error" in msg and "ok" not in msg:
                 Grabber.last_message = msg["error"]
-                Grabber.status = "Erreur : " + msg["error"]
+                Grabber.status = L("Erreur : ", "Error: ") + tool_msg(msg["error"])
                 if not Grabber.ready or self._sent:
-                    self.report({"ERROR"}, msg["error"])
+                    self.report({"ERROR"}, tool_msg(msg["error"]))
                     return self.finish(context, "CANCELLED")
             elif "log" in msg:
                 Grabber.last_message = msg["log"]
@@ -526,7 +579,7 @@ class GTAPI_OT_run(Operator):
             elif "results" in msg:
                 Grabber.results = msg["results"]
                 Grabber.results_kind = "YMAP" if self.action == "searchymap" else "PROP"
-                Grabber.status = f"{len(Grabber.results)} resultat(s) pour \u00ab {self.name} \u00bb"
+                Grabber.status = L(f"{len(Grabber.results)} resultat(s) pour \u00ab {self.name} \u00bb", f"{len(Grabber.results)} result(s) for \u201c{self.name}\u201d")
                 return self.finish(context)
             elif "ok" in msg:
                 if self.action == "ymap":
@@ -541,16 +594,16 @@ class GTAPI_OT_run(Operator):
             elif self.action == "searchymap":
                 Grabber.send("searchymap", self.name, context.scene.gtapi.search_limit)
             elif self.action == "ymap":
-                Grabber.status = f"Lecture du ymap {self.name}..."
+                Grabber.status = L(f"Lecture du ymap {self.name}...", f"Reading ymap {self.name}...")
                 pr = context.scene.gtapi
                 Grabber.send("ymap", self.name, output_dir(), 1 if pr.ymap_hd_only else 0,
                              pr.ymap_exclude if pr.ymap_skip_props else "")
             else:
-                Grabber.status = f"Extraction de {self.name}..."
+                Grabber.status = L(f"Extraction de {self.name}...", f"Extracting {self.name}...")
                 Grabber.send("export", self.name, output_dir())
             self._sent = True
 
-        context.workspace.status_text_set(f"GTA Prop : {Grabber.status}   (Echap pour annuler)")
+        context.workspace.status_text_set(f"GTA Prop : {Grabber.status}   " + L("(Echap pour annuler)", "(Esc to cancel)"))
         tag_redraw()
         return {"RUNNING_MODAL"}
 
@@ -560,15 +613,15 @@ class GTAPI_OT_run(Operator):
             if sugg:
                 Grabber.results = sugg
                 Grabber.results_kind = "PROP"
-            Grabber.status = msg.get("error", "Echec")
-            self.report({"ERROR"}, msg.get("error", "Echec") + (" - voir les suggestions" if sugg else ""))
+            Grabber.status = tool_msg(msg.get("error")) or L("Echec", "Failed")
+            self.report({"ERROR"}, Grabber.status + (L(" - voir les suggestions", " - see the suggestions") if sugg else ""))
             return self.finish(context, "CANCELLED")
 
         before = set(bpy.data.objects)
         try:
             bpy.ops.sollumz.import_assets(directory=msg["dir"] + os.sep, files=[{"name": msg["file"]}])
         except Exception as ex:
-            self.report({"ERROR"}, f"Import Sollumz echoue : {ex}")
+            self.report({"ERROR"}, L(f"Import Sollumz echoue : {ex}", f"Sollumz import failed: {ex}"))
             return self.finish(context, "CANCELLED")
         new_objs = [o for o in bpy.data.objects if o not in before]
 
@@ -589,10 +642,10 @@ class GTAPI_OT_run(Operator):
 
         apply_lights_visibility(context.scene)
         missing = msg.get("missing") or []
-        Grabber.status = f"{msg['file']} importe ({msg['textures']} textures)"
+        Grabber.status = L(f"{msg['file']} importe ({msg['textures']} textures)", f"{msg['file']} imported ({msg['textures']} textures)")
         if missing:
-            Grabber.status += f", {len(missing)} manquante(s)"
-            self.report({"WARNING"}, "Textures introuvables : " + ", ".join(missing[:8]) + (" ..." if len(missing) > 8 else ""))
+            Grabber.status += L(f", {len(missing)} manquante(s)", f", {len(missing)} missing")
+            self.report({"WARNING"}, L("Textures introuvables : ", "Textures not found: ") + ", ".join(missing[:8]) + (" ..." if len(missing) > 8 else ""))
         else:
             self.report({"INFO"}, Grabber.status)
         return self.finish(context)
@@ -604,20 +657,20 @@ class GTAPI_OT_run(Operator):
             if sugg:
                 Grabber.results = sugg
                 Grabber.results_kind = "YMAP"
-            Grabber.status = msg.get("error", "Echec")
-            self.report({"ERROR"}, msg.get("error", "Echec") + (" - voir les suggestions" if sugg else ""))
+            Grabber.status = tool_msg(msg.get("error")) or L("Echec", "Failed")
+            self.report({"ERROR"}, Grabber.status + (L(" - voir les suggestions", " - see the suggestions") if sugg else ""))
             return self.finish(context, "CANCELLED")
 
         # 1) Importe chaque modele different (a l'origine), sauf ceux deja presents dans le .blend
         existing = {o.name.lower() for o in bpy.data.objects}
         to_import = [f for f in msg.get("models", []) if f.split(".")[0].lower() not in existing]
         if to_import:
-            Grabber.status = f"Import de {len(to_import)} modeles dans Blender..."
+            Grabber.status = L(f"Import de {len(to_import)} modeles dans Blender...", f"Importing {len(to_import)} models into Blender...")
             context.workspace.status_text_set(f"GTA Prop : {Grabber.status}")
             try:
                 bpy.ops.sollumz.import_assets(directory=msg["dir"] + os.sep, files=[{"name": f} for f in to_import])
             except Exception as ex:
-                self.report({"ERROR"}, f"Import des modeles echoue : {ex}")
+                self.report({"ERROR"}, L(f"Import des modeles echoue : {ex}", f"Model import failed: {ex}"))
                 return self.finish(context, "CANCELLED")
 
         # 2) Importe le ymap : Sollumz place chaque entite sur le modele du meme nom
@@ -628,7 +681,7 @@ class GTAPI_OT_run(Operator):
                 settings.ymap_instance_entities = True
             bpy.ops.sollumz.import_assets(directory=msg["ymapdir"] + os.sep, files=[{"name": msg["ymap"]}])
         except Exception as ex:
-            self.report({"ERROR"}, f"Import du ymap echoue : {ex}")
+            self.report({"ERROR"}, L(f"Import du ymap echoue : {ex}", f"Ymap import failed: {ex}"))
             return self.finish(context, "CANCELLED")
         finally:
             if old is not None:
@@ -655,17 +708,18 @@ class GTAPI_OT_run(Operator):
             it.count = counts[name]
 
         failed = msg.get("failed") or []
-        Grabber.status = (f"{msg['ymap']} importe : {msg['entities']} entites, "
-                          f"{len(msg.get('models', []))} modeles")
+        nmod = len(msg.get('models', []))
+        Grabber.status = L(f"{msg['ymap']} importe : {msg['entities']} entites, {nmod} modeles",
+                           f"{msg['ymap']} imported: {msg['entities']} entities, {nmod} models")
         notes = []
         if msg.get("skippedlod"):
-            notes.append(f"{msg['skippedlod']} entites LOD ignorees")
+            notes.append(L(f"{msg['skippedlod']} entites LOD ignorees", f"{msg['skippedlod']} LOD entities skipped"))
         if msg.get("excluded"):
-            notes.append(f"{msg['excluded']} entites desactivees par le filtre")
+            notes.append(L(f"{msg['excluded']} entites desactivees par le filtre", f"{msg['excluded']} entities disabled by the filter"))
         if msg.get("mlo"):
-            notes.append(f"{msg['mlo']} interieur(s) MLO non importe(s)")
+            notes.append(L(f"{msg['mlo']} interieur(s) MLO non importe(s)", f"{msg['mlo']} MLO interior(s) not imported"))
         if failed:
-            notes.append(f"{len(failed)} modele(s) introuvable(s) : " + ", ".join(failed[:6]) + (" ..." if len(failed) > 6 else ""))
+            notes.append(L(f"{len(failed)} modele(s) introuvable(s) : ", f"{len(failed)} model(s) not found: ") + ", ".join(failed[:6]) + (" ..." if len(failed) > 6 else ""))
         self.report({"WARNING"} if failed else {"INFO"}, Grabber.status + ("  |  " + " ; ".join(notes) if notes else ""))
         return self.finish(context)
 
@@ -675,6 +729,13 @@ class GTAPI_OT_models_visibility(Operator):
     bl_label = "Visibilite des props"
     bl_description = "Afficher ou masquer plusieurs modeles du ymap d'un coup"
     bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def description(cls, context, properties):
+        return {
+            "SHOW_ALL": L("Afficher tous les modeles du ymap", "Show all ymap models"),
+            "HIDE_ALL": L("Masquer tous les modeles du ymap", "Hide all ymap models"),
+        }.get(properties.mode, L("Masquer les modeles qui correspondent au filtre", "Hide the models that match the filter"))
 
     mode: StringProperty(default="SHOW_ALL", options={"HIDDEN", "SKIP_SAVE"})  # SHOW_ALL | HIDE_ALL | HIDE_FILTER
 
@@ -691,7 +752,7 @@ class GTAPI_OT_models_visibility(Operator):
             if it.visible != want:
                 it.visible = want  # declenche _on_model_toggle
                 n += 1
-        self.report({"INFO"}, f"{n} modele(s) modifie(s)")
+        self.report({"INFO"}, L(f"{n} modele(s) modifie(s)", f"{n} model(s) changed"))
         return {"FINISHED"}
 
 
@@ -699,6 +760,10 @@ class GTAPI_OT_stop(Operator):
     bl_idname = "gtapi.stop"
     bl_label = "Arreter l'outil"
     bl_description = "Ferme l'outil d'extraction et libere sa memoire"
+
+    @classmethod
+    def description(cls, context, properties):
+        return L("Ferme l'outil d'extraction et libere sa memoire", "Close the extraction tool and free its memory")
 
     def execute(self, context):
         Grabber.stop()
@@ -710,6 +775,10 @@ class GTAPI_OT_open_folder(Operator):
     bl_idname = "gtapi.open_folder"
     bl_label = "Ouvrir le dossier d'extraction"
     bl_description = "Ouvre le dossier ou les modeles et textures sont extraits"
+
+    @classmethod
+    def description(cls, context, properties):
+        return L("Ouvre le dossier ou les modeles et textures sont extraits", "Open the folder where models and textures are extracted")
 
     def execute(self, context):
         os.startfile(str(output_dir())) if sys.platform == "win32" else None
@@ -744,23 +813,25 @@ class GTAPI_PT_panel(Panel):
         props = context.scene.gtapi
         p = prefs()
 
+        layout.row(align=True).prop(p, "language", expand=True)
         if not sollumz_available():
-            layout.label(text="Active Sollumz d'abord", icon="ERROR")
+            layout.label(text=L("Active Sollumz d'abord", "Enable Sollumz first"), icon="ERROR")
         if not p.codewalker_dir or not p.gta_dir:
             box = layout.box()
-            box.label(text="Configuration requise :", icon="PREFERENCES")
+            box.label(text=L("Configuration requise :", "Setup required:"), icon="PREFERENCES")
             box.prop(p, "codewalker_dir", text="CodeWalker")
             row = box.row(align=True)
             row.prop(p, "gta_dir", text="GTA V")
             row.operator("gtapi.detect_gta", text="", icon="VIEWZOOM")
 
         vis = layout.box()
-        vis.label(text="Affichage", icon="HIDE_OFF")
+        vis.label(text=L("Affichage", "Display"), icon="HIDE_OFF")
         r = vis.row(align=True)
         nl = sum(1 for _ in sollumz_lights())
-        r.prop(props, "show_lights", text=f"Lumieres ({nl})" if nl else "Lumieres",
+        lights = L("Lumieres", "Lights")
+        r.prop(props, "show_lights", text=f"{lights} ({nl})" if nl else lights,
                icon="LIGHT" if props.show_lights else "OUTLINER_DATA_LIGHT", toggle=True)
-        r.prop(props, "show_blue_lines", icon="IPO_LINEAR" if props.show_blue_lines else "HIDE_ON", toggle=True)
+        r.prop(props, "show_blue_lines", text=L("Lignes bleues", "Blue lines"), icon="IPO_LINEAR" if props.show_blue_lines else "HIDE_ON", toggle=True)
 
         layout.row().prop(props, "mode", expand=True)
         ymap = props.mode == "YMAP"
@@ -772,30 +843,30 @@ class GTAPI_PT_panel(Panel):
             col.prop(props, "prop_name", text="", icon="MESH_CUBE")
         row = col.row(align=True)
         row.scale_y = 1.3
-        op = row.operator("gtapi.run", text="Importer", icon="IMPORT")
+        op = row.operator("gtapi.run", text=L("Importer", "Import"), icon="IMPORT")
         op.action = "ymap" if ymap else "import"
-        op = row.operator("gtapi.run", text="Chercher", icon="VIEWZOOM")
+        op = row.operator("gtapi.run", text=L("Chercher", "Search"), icon="VIEWZOOM")
         op.action = "searchymap" if ymap else "search"
         if ymap:
-            layout.prop(props, "ymap_hd_only")
-            layout.prop(props, "ymap_skip_props")
+            layout.prop(props, "ymap_hd_only", text=L("Modeles HD seulement", "HD models only"))
+            layout.prop(props, "ymap_skip_props", text=L("Desactiver les props", "Disable props"))
             sub = layout.row()
-            sub.prop(props, "ymap_exclude", text="Filtre")
+            sub.prop(props, "ymap_exclude", text=L("Filtre", "Filter"))
         else:
-            layout.prop(props, "place_at_cursor")
+            layout.prop(props, "place_at_cursor", text=L("Placer au curseur 3D", "Place at 3D cursor"))
 
         box = layout.box()
         if Grabber.alive():
-            box.label(text=Grabber.status or "En marche", icon="CHECKMARK" if Grabber.ready else "TIME")
-            box.operator("gtapi.stop", icon="CANCEL")
+            box.label(text=Grabber.status or L("En marche", "Running"), icon="CHECKMARK" if Grabber.ready else "TIME")
+            box.operator("gtapi.stop", text=L("Arreter l'outil", "Stop the tool"), icon="CANCEL")
         else:
-            box.label(text=Grabber.status or "Outil arrete (demarre au premier import)", icon="INFO")
-            op = box.operator("gtapi.run", text="Scanner le jeu maintenant", icon="PLAY")
+            box.label(text=Grabber.status or L("Outil arrete (demarre au premier import)", "Tool stopped (starts on first import)"), icon="INFO")
+            op = box.operator("gtapi.run", text=L("Scanner le jeu maintenant", "Scan the game now"), icon="PLAY")
             op.action = "warmup"
 
         if Grabber.results:
             res = layout.box()
-            res.label(text="Resultats (clic = importer) :")
+            res.label(text=L("Resultats (clic = importer) :", "Results (click = import):"))
             c = res.column(align=True)
             is_y = Grabber.results_kind == "YMAP"
             for n in Grabber.results:
@@ -806,18 +877,18 @@ class GTAPI_PT_panel(Panel):
         if ymap and len(props.ymap_models):
             mb = layout.box()
             hidden = sum(1 for it in props.ymap_models if not it.visible)
-            mb.label(text=f"Props du ymap ({len(props.ymap_models)}, {hidden} masque(s))", icon="OUTLINER")
+            mb.label(text=L(f"Props du ymap ({len(props.ymap_models)}, {hidden} masque(s))", f"Ymap props ({len(props.ymap_models)}, {hidden} hidden)"), icon="OUTLINER")
             r = mb.row(align=True)
-            op = r.operator("gtapi.models_visibility", text="Tout", icon="HIDE_OFF")
+            op = r.operator("gtapi.models_visibility", text=L("Tout", "All"), icon="HIDE_OFF")
             op.mode = "SHOW_ALL"
-            op = r.operator("gtapi.models_visibility", text="Aucun", icon="HIDE_ON")
+            op = r.operator("gtapi.models_visibility", text=L("Aucun", "None"), icon="HIDE_ON")
             op.mode = "HIDE_ALL"
-            op = r.operator("gtapi.models_visibility", text="Masquer filtre", icon="FILTER")
+            op = r.operator("gtapi.models_visibility", text=L("Masquer filtre", "Hide filter"), icon="FILTER")
             op.mode = "HIDE_FILTER"
             mb.prop(props, "ymap_list_filter", text="", icon="VIEWZOOM")
             mb.template_list("GTAPI_UL_models", "", props, "ymap_models", props, "ymap_models_index", rows=6)
 
-        layout.operator("gtapi.open_folder", icon="FILE_FOLDER")
+        layout.operator("gtapi.open_folder", text=L("Ouvrir le dossier d'extraction", "Open extraction folder"), icon="FILE_FOLDER")
 
 
 # ---------------------------------------------------------------- enregistrement

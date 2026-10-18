@@ -14,6 +14,7 @@ Addon Blender (extension 4.2+) pour [Sollumz](https://github.com/Sollumz/Sollumz
 - **Chercher** : recherche de props ou de ymaps par nom.
 - **Placer au curseur 3D**, afficher/masquer les **lumières** et les **lignes bleues** (hiérarchie parent/LOD).
 - **Ouvrir le dossier d'extraction** pour retrouver les fichiers extraits.
+- Interface en **français** ou en **anglais** : boutons FR / EN en haut du panneau (ou dans les préférences de l'addon).
 
 ### Prérequis
 - Windows, Blender 4.2 ou plus récent, **Sollumz** activé.
@@ -37,6 +38,7 @@ Vue 3D → touche **N** → onglet **Sollumz Tools** → **GTA Prop Importer**. 
 - **Search** props or ymaps by name.
 - **Place at 3D cursor**, toggle **lights** and the **blue lines** (parent/LOD hierarchy).
 - **Open the extraction folder**.
+- **French or English** interface: FR / EN buttons at the top of the panel (or in the add-on preferences).
 
 ### Requirements
 Windows, Blender 4.2+, Sollumz, GTA V installed, CodeWalker (`CodeWalker.Core.dll`), .NET Framework 4.8 (`PropGrabber.cs` is compiled automatically on first import).
